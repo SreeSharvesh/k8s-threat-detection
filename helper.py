@@ -6,6 +6,9 @@ import grp
 import yaml
 import json
 
+
+# --------------------------------------------------------- Worker Node rules ------------------------------------------------------------------------------------------
+
 def get_process_argument(process_name, argument):
     """
     Get a specific argument from a running process.
@@ -1372,3 +1375,198 @@ def check_apiserver_no_always_admit():
         return {"status": "FAIL", "reason": f"Unexpected error: {str(e)}"}
 
 
+# --------------------------------------------------------- Policies rules ------------------------------------------------------------------------------------------
+
+def check_cluster_admin_role_usage():
+    """
+    Check if cluster-admin role is only used where required.
+    Returns status dict with PASS/FAIL and details.
+    """
+    try:
+        # Get clusterrolebindings
+        result = subprocess.run([
+            'kubectl', 'get', 'clusterrolebindings', 
+            '-o=custom-columns=NAME:.metadata.name,ROLE:.roleRef.name,SUBJECT:.subjects[*].name',
+            '--no-headers'
+        ], stdout=subprocess.PIPE, text=True, check=True)
+        
+        violations = []
+        for line in result.stdout.strip().split('\n'):
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 3:
+                role_name = parts[0]
+                role_binding = parts[1]
+                subject = ' '.join(parts[2:]) if len(parts) > 2 else ''
+                
+                # Check if role_name is not cluster-admin but role_binding is cluster-admin
+                if role_name != "cluster-admin" and role_binding == "cluster-admin":
+                    violations.append(f"Role {role_name} bound to cluster-admin role")
+        
+        if violations:
+            return {
+                "status": "FAIL", 
+                "reason": f"Found {len(violations)} violations: {'; '.join(violations)}"
+            }
+        else:
+            return {"status": "PASS", "reason": "No inappropriate cluster-admin role bindings found"}
+            
+    except subprocess.CalledProcessError as e:
+        return {"status": "FAIL", "reason": f"Error running kubectl command: {str(e)}"}
+    except Exception as e:
+        return {"status": "FAIL", "reason": f"Unexpected error: {str(e)}"}
+
+def check_secrets_access():
+    """
+    Check if system:authenticated can get, list, watch secrets.
+    Returns status dict with PASS/FAIL and details.
+    """
+    try:
+        result = subprocess.run([
+            'kubectl', 'auth', 'can-i', 'get,list,watch', 'secrets', 
+            '--all-namespaces', '--as=system:authenticated'
+        ], stdout=subprocess.PIPE, text=True, check=True)
+        
+        can_access = result.stdout.strip().lower()
+        if can_access == "no":
+            return {"status": "PASS", "reason": "system:authenticated cannot access secrets"}
+        else:
+            return {"status": "FAIL", "reason": f"system:authenticated can access secrets: {can_access}"}
+            
+    except subprocess.CalledProcessError as e:
+        return {"status": "FAIL", "reason": f"Error running kubectl command: {str(e)}"}
+    except Exception as e:
+        return {"status": "FAIL", "reason": f"Unexpected error: {str(e)}"}
+
+def check_roles_wildcard_usage():
+    """
+    Check for wildcard usage in Roles and ClusterRoles.
+    Returns status dict with PASS/FAIL and details.
+    """
+    try:
+        violations = []
+        
+        # Check Roles
+        result = subprocess.run([
+            'kubectl', 'get', 'roles', '--all-namespaces',
+            '-o', 'custom-columns=ROLE_NAMESPACE:.metadata.namespace,ROLE_NAME:.metadata.name',
+            '--no-headers'
+        ], stdout=subprocess.PIPE, text=True, check=True)
+        
+        for line in result.stdout.strip().split('\n'):
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                role_namespace = parts[0]
+                role_name = parts[1]
+                
+                # Get role rules
+                role_result = subprocess.run([
+                    'kubectl', 'get', 'role', '-n', role_namespace, role_name, '-o=json'
+                ], stdout=subprocess.PIPE, text=True, check=True)
+                
+                role_data = json.loads(role_result.stdout)
+                rules = role_data.get('rules', [])
+                
+                for rule in rules:
+                    for key, values in rule.items():
+                        if isinstance(values, list) and '["*"]' in str(values):
+                            violations.append(f"Role {role_name} in namespace {role_namespace} has wildcard in {key}")
+        
+        # Check ClusterRoles
+        result = subprocess.run([
+            'kubectl', 'get', 'clusterroles',
+            '-o', 'custom-columns=CLUSTERROLE_NAME:.metadata.name',
+            '--no-headers'
+        ], stdout=subprocess.PIPE, text=True, check=True)
+        
+        for line in result.stdout.strip().split('\n'):
+            if not line.strip():
+                continue
+            clusterrole_name = line.strip()
+            
+            # Get clusterrole rules
+            role_result = subprocess.run([
+                'kubectl', 'get', 'clusterrole', clusterrole_name, '-o=json'
+            ], stdout=subprocess.PIPE, text=True, check=True)
+            
+            role_data = json.loads(role_result.stdout)
+            rules = role_data.get('rules', [])
+            
+            for rule in rules:
+                for key, values in rule.items():
+                    if isinstance(values, list) and '["*"]' in str(values):
+                        violations.append(f"ClusterRole {clusterrole_name} has wildcard in {key}")
+        
+        if violations:
+            return {
+                "status": "FAIL", 
+                "reason": f"Found {len(violations)} wildcard violations: {'; '.join(violations)}"
+            }
+        else:
+            return {"status": "PASS", "reason": "No wildcard usage found in Roles and ClusterRoles"}
+            
+    except subprocess.CalledProcessError as e:
+        return {"status": "FAIL", "reason": f"Error running kubectl command: {str(e)}"}
+    except Exception as e:
+        return {"status": "FAIL", "reason": f"Unexpected error: {str(e)}"}
+
+def check_pods_create_access():
+    """
+    Check if system:authenticated can create pods.
+    Returns status dict with PASS/FAIL and details.
+    """
+    try:
+        result = subprocess.run([
+            'kubectl', 'auth', 'can-i', 'create', 'pods', 
+            '--all-namespaces', '--as=system:authenticated'
+        ], stdout=subprocess.PIPE, text=True, check=True)
+        
+        can_create = result.stdout.strip().lower()
+        if can_create == "no":
+            return {"status": "PASS", "reason": "system:authenticated cannot create pods"}
+        else:
+            return {"status": "FAIL", "reason": f"system:authenticated can create pods: {can_create}"}
+            
+    except subprocess.CalledProcessError as e:
+        return {"status": "FAIL", "reason": f"Error running kubectl command: {str(e)}"}
+    except Exception as e:
+        return {"status": "FAIL", "reason": f"Unexpected error: {str(e)}"}
+
+def check_default_service_accounts():
+    """
+    Check if default service accounts are not actively used (automountServiceAccountToken: false).
+    Returns status dict with PASS/FAIL and details.
+    """
+    try:
+        result = subprocess.run([
+            'kubectl', 'get', 'serviceaccount', '--all-namespaces',
+            '--field-selector', 'metadata.name=default', '-o=json'
+        ], stdout=subprocess.PIPE, text=True, check=True)
+        
+        data = json.loads(result.stdout)
+        items = data.get('items', [])
+        
+        violations = []
+        for item in items:
+            namespace = item['metadata']['namespace']
+            automount_token = item.get('automountServiceAccountToken')
+            
+            # If automountServiceAccountToken is not explicitly set to false, it's a violation
+            if automount_token is not False:
+                violations.append(f"Default service account in namespace {namespace} has automountServiceAccountToken: {automount_token}")
+        
+        if violations:
+            return {
+                "status": "FAIL", 
+                "reason": f"Found {len(violations)} violations: {'; '.join(violations)}"
+            }
+        else:
+            return {"status": "PASS", "reason": "All default service accounts have automountServiceAccountToken: false"}
+            
+    except subprocess.CalledProcessError as e:
+        return {"status": "FAIL", "reason": f"Error running kubectl command: {str(e)}"}
+    except Exception as e:
+        return {"status": "FAIL", "reason": f"Unexpected error: {str(e)}"}
