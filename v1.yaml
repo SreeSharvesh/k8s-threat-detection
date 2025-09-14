@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: v1
+spec:
+  template:
+    spec:
+      hostPID: true
+      hostNetwork: true
+      containers:
+      - name: check
+        image: mohanvamsi06/fyp:v0.0.1
+        imagePullPolicy: Always
+        volumeMounts:
+        - name: manifests
+          mountPath: /etc/kubernetes/manifests
+          readOnly: true
+        - name: cni
+          mountPath: /etc/cni/net.d
+          readOnly: true
+        - name: etcd
+          mountPath: /var/lib/etcd
+          readOnly: true
+        - name: output
+          mountPath: /output
+      restartPolicy: Never
+      volumes:
+      - name: manifests
+        hostPath:
+          path: /etc/kubernetes/manifests
+      - name: cni
+        hostPath: 
+          path: /etc/cni/net.d
+      - name: etcd
+        hostPath:
+          path: /var/lib/etcd
+      - name: output
+        hostPath:
+          path: /var/tmp/results
+          type: DirectoryOrCreate

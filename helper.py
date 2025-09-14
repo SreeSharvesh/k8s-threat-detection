@@ -6,6 +6,188 @@ import grp
 import yaml
 import json
 
+# ------------------------------------------------------ Control plane rules --------------------------------------------------------------------------------------
+
+
+def check_permissions(file_path):
+    """Check if file permissions are 600 or more restrictive."""
+    if not os.path.exists(file_path):
+        return {"status": "FAIL", "reason": f"{file_path} not found"}
+    st = os.stat(file_path)
+    file_mode = stat.S_IMODE(st.st_mode)
+    if file_mode <= 0o600 and (file_mode & 0o077) == 0:
+        return {"status": "PASS", "mode": oct(file_mode)}
+    return {"status": "FAIL", "mode": oct(file_mode), "reason": "Permissions too open"}
+
+def check_ownership(file_path):
+    """Check if file is owned by root:root."""
+    if not os.path.exists(file_path):
+        return {"status": "FAIL", "reason": f"{file_path} not found"}
+    st = os.stat(file_path)
+    uid = st.st_uid
+    gid = st.st_gid
+    user = pwd.getpwuid(uid).pw_name
+    group = grp.getgrgid(gid).gr_name
+    if user == "root" and group == "root":
+        return {"status": "PASS", "owner": f"{user}:{group}"}
+    return {"status": "FAIL", "owner": f"{user}:{group}", "reason": "Ownership is not root:root"}
+
+def check_cni_file_permissions():
+    """
+    Check that all Container Network Interface config files
+    in /etc/cni/net.d/ have permissions 600 or more restrictive
+    """
+    cni_dir = "/etc/cni/net.d"
+    results = []
+
+    if not os.path.exists(cni_dir):
+        return {"status": "WARN", "reason": f"{cni_dir} not found"}
+
+    files_found = False
+    for filename in os.listdir(cni_dir):
+        file_path = os.path.join(cni_dir, filename)
+
+        if not os.path.isfile(file_path):
+            continue
+        
+        files_found = True
+        st = os.stat(file_path)
+        file_mode = stat.S_IMODE(st.st_mode)
+
+        file_result = {
+            "file": file_path,
+            "mode": oct(file_mode),
+        }
+
+        if file_mode > 0o600 or (file_mode & 0o077) != 0:
+            file_result["status"] = "FAIL"
+            file_result["reason"] = "Permissions too open"
+        else:
+            file_result["status"] = "PASS"
+
+        results.append(file_result)
+
+    if not files_found:
+        return {"status": "WARN", "reason": f"files not found in {file_path}"}
+    return results
+
+def check_cni_file_ownership():
+    """
+    Check that all Container Network Interface config files
+    in /etc/cni/net.d/ have permissions 600 or more restrictive
+    """
+    cni_dir = "/etc/cni/net.d"
+    results = []
+
+    if not os.path.exists(cni_dir):
+        return {"status": "WARN", "reason": f"{cni_dir} not found"}
+
+    files_found = False
+    for filename in os.listdir(cni_dir):
+        file_path = os.path.join(cni_dir, filename)
+
+        if not os.path.isfile(file_path):
+            continue
+        
+        files_found = True
+        st = os.stat(file_path)
+        uid, gid = st.st_uid, st.st_gid
+        user, group = pwd.getpwuid(uid).pw_name, grp.getgrgid(gid).gr_name
+
+        file_result = {
+            "file": file_path,
+            "owner": f"{user}:{group}"    
+        }
+
+        if user != "root" or group != "root":
+            file_result["status"] = "FAIL"
+            file_result["reason"] = "Ownership is not root:root"
+        else:
+            file_result["status"] = "PASS"
+
+        results.append(file_result)
+
+    if not files_found:
+        return {"status": "WARN", "reason": f"files not found in {file_path}"}
+    return results
+
+def get_etcd_data_dir():
+    """
+    Finds etcd --data-dir from /proc without using ps.
+    Returns the directory path or None if not found.
+    """
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        cmdline_path = os.path.join("/proc", pid, "cmdline")
+        try:
+            with open(cmdline_path, "rb") as f:
+                cmdline = f.read().decode().replace("\x00", " ")
+                if "etcd" in cmdline and "--data-dir" in cmdline:
+                    match = re.search(r"--data-dir=([^\s]+)", cmdline)
+                    if match:
+                        return match.group(1)
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+    return None
+
+def check_etcd_data_directory_permissions():
+    """
+    Check that the etcd data directory permissions are set to 700 or more restrictive.
+    Dynamically finds the --data-dir argument from running etcd process.
+    """
+    etcd_dir = get_etcd_data_dir()
+    if not etcd_dir:
+        return {"status": "WARM", "reason": "Could not determine etcd data directory from ps output"}
+
+    if not os.path.exists(etcd_dir):
+        return {"status": "WARN", "reason": f"etcd data directory {etcd_dir} not found"}
+
+    st = os.stat(etcd_dir)
+    dir_mode = stat.S_IMODE(st.st_mode)
+
+    result = {
+        "directory": etcd_dir,
+        "mode": oct(dir_mode)
+    }
+
+    if dir_mode > 0o700 or (dir_mode & 0o077) != 0:
+        result["status"] = "FAIL"
+        result["reason"] = "Permissions too open (should be 700 or more restrictive)"
+    else:
+        result["status"] = "PASS"
+
+    return result
+
+def check_etcd_data_directory_ownership():
+    """
+    Check that the etcd data directory permissions are set to 700 or more restrictive.
+    Dynamically finds the --data-dir argument from running etcd process.
+    """
+    etcd_dir = get_etcd_data_dir()
+    if not etcd_dir:
+        return {"status": "WARM", "reason": "Could not determine etcd data directory from ps output"}
+
+    if not os.path.exists(etcd_dir):
+        return {"status": "WARN", "reason": f"etcd data directory {etcd_dir} not found"}
+
+    st = os.stat(etcd_dir)
+    uid, gid = st.st_uid, st.st_gid
+    user, group = pwd.getpwuid(uid).pw_name, grp.getgrgid(gid).gr_name
+
+    result = {
+        "directory": etcd_dir,
+        "owner": f"{user}:{group}"
+    }
+
+    if user != "etcd" or group != "etcd":
+        result["status"] = "FAIL"
+        result["reason"] = "Ownership is not etcd:etcd"
+    else:
+        result["status"] = "PASS"
+
+    return result
+
 
 # --------------------------------------------------------- Worker Node rules ------------------------------------------------------------------------------------------
 

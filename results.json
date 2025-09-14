@@ -1,0 +1,108 @@
+[
+    {
+        "rule": "1.1.1",
+        "description": "Ensure that the API server pod specification file permissions are set to 600 or more restrictive (Automated)",
+        "result": {
+            "status": "PASS",
+            "mode": "0o600"
+        }
+    },
+    {
+        "rule": "1.1.2",
+        "description": "Ensure that the API server pod specification file ownership is set to root:root (Automated)",
+        "result": {
+            "status": "PASS",
+            "owner": "root:root"
+        }
+    },
+    {
+        "rule": "1.1.3",
+        "description": "Ensure that the controller manager pod specification file permissions are set to 600 or more restrictive (Automated)",
+        "result": {
+            "status": "PASS",
+            "mode": "0o600"
+        }
+    },
+    {
+        "rule": "1.1.4",
+        "description": "Ensure that the controller manager pod specification file ownership is set to root:root (Automated)",
+        "result": {
+            "status": "PASS",
+            "owner": "root:root"
+        }
+    },
+    {
+        "rule": "1.1.5",
+        "description": "Ensure that the scheduler pod specification file permissions are set to 600 or more restrictive (Automated)",
+        "result": {
+            "status": "PASS",
+            "mode": "0o600"
+        }
+    },
+    {
+        "rule": "1.1.6",
+        "description": "Ensure that the scheduler pod specification file ownership is set to root:root (Automated)",
+        "result": {
+            "status": "PASS",
+            "owner": "root:root"
+        }
+    },
+    {
+        "rule": "1.1.7",
+        "description": "Ensure that the etcd pod specification file permissions are set to 600 or more restrictive (Automated)",
+        "result": {
+            "status": "PASS",
+            "mode": "0o600"
+        }
+    },
+    {
+        "rule": "1.1.8",
+        "description": "Ensure that the etcd pod specification file ownership is set to root:root (Automated)",
+        "result": {
+            "status": "PASS",
+            "owner": "root:root"
+        }
+    },
+    {
+        "rule": "1.1.9",
+        "description": "Ensure that the Container Network Interface file permissions are set to 600 or more restrictive (Manual)",
+        "result": [
+            {
+                "file": "/etc/cni/net.d/10-flannel.conflist",
+                "mode": "0o644",
+                "status": "FAIL",
+                "reason": "Permissions too open"
+            }
+        ]
+    },
+    {
+        "rule": "1.1.10",
+        "description": "Ensure that the Container Network Interface file ownership is set to root:root (Manual)",
+        "result": [
+            {
+                "file": "/etc/cni/net.d/10-flannel.conflist",
+                "owner": "root:root",
+                "status": "PASS"
+            }
+        ]
+    },
+    {
+        "rule": "1.1.11",
+        "description": "Ensure that the etcd data directory permissions are set to 700 or more restrictive (Automated)",
+        "result": {
+            "directory": "/var/lib/etcd",
+            "mode": "0o700",
+            "status": "PASS"
+        }
+    },
+    {
+        "rule": "1.1.12",
+        "description": "Ensure that the etcd data directory ownership is set to etcd:etcd (Automated)",
+        "result": {
+            "directory": "/var/lib/etcd",
+            "owner": "root:root",
+            "status": "FAIL",
+            "reason": "Ownership is not etcd:etcd"
+        }
+    }
+]
